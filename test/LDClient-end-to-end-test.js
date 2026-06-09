@@ -1,6 +1,7 @@
 const LDClient = require('../index.js');
 import { AsyncQueue, TestHttpHandlers, TestHttpServer, withCloseable } from 'launchdarkly-js-test-helpers';
 import { stubLogger } from './stubs';
+const { startSocksProxyServer } = require('./socksProxyServer');
 
 async function withAllServers(asyncCallback) {
   return await withCloseable(TestHttpServer.start, async pollingServer =>
@@ -214,5 +215,89 @@ describe('LDClient end-to-end', () => {
         });
       });
     });
+  });
+
+  it('can use a SOCKS proxy in polling mode', async () => {
+    await withCloseable(() => startSocksProxyServer(), async socksServer => {
+      await withCloseable(TestHttpServer.start, async pollingServer => {
+        pollingServer.forMethodAndPath('get', '/sdk/latest-all', TestHttpHandlers.respondJson(allData));
+
+        const config = {
+          baseUri: pollingServer.url,
+          proxyHost: socksServer.hostname,
+          proxyPort: socksServer.port,
+          proxyScheme: 'socks5',
+          stream: false,
+          sendEvents: false,
+          logger: stubLogger(),
+        };
+
+        await withCloseable(LDClient.init(sdkKey, config), async client => {
+          await client.waitForInitialization();
+          expect(client.initialized()).toBe(true);
+
+          // If the SOCKS proxy did not see a connection then the SDK did not actually use it
+          expect(socksServer.requestCount()).toBeGreaterThanOrEqual(1);
+        });
+      });
+    });
+  });
+
+  it('can use a SOCKS proxy in streaming mode', async () => {
+    await withCloseable(() => startSocksProxyServer(), async socksServer => {
+      await withCloseable(TestHttpServer.start, async streamingServer => {
+        const streamEvent = { type: 'put', data: JSON.stringify({ data: allData }) };
+        await withCloseable(new AsyncQueue(), async events => {
+          events.add(streamEvent);
+          streamingServer.forMethodAndPath('get', '/all', TestHttpHandlers.sseStream(events));
+
+          const config = {
+            streamUri: streamingServer.url,
+            proxyHost: socksServer.hostname,
+            proxyPort: socksServer.port,
+            proxyScheme: 'socks5',
+            sendEvents: false,
+            logger: stubLogger(),
+          };
+
+          await withCloseable(LDClient.init(sdkKey, config), async client => {
+            await client.waitForInitialization();
+            expect(client.initialized()).toBe(true);
+
+            expect(socksServer.requestCount()).toBeGreaterThanOrEqual(1);
+          });
+        });
+      });
+    });
+  });
+
+  it('can use a SOCKS proxy with username/password authentication', async () => {
+    await withCloseable(
+      () => startSocksProxyServer({ username: 'user', password: 'p@ss:word' }),
+      async socksServer => {
+        await withCloseable(TestHttpServer.start, async pollingServer => {
+          pollingServer.forMethodAndPath('get', '/sdk/latest-all', TestHttpHandlers.respondJson(allData));
+
+          const config = {
+            baseUri: pollingServer.url,
+            proxyHost: socksServer.hostname,
+            proxyPort: socksServer.port,
+            proxyScheme: 'socks5',
+            proxyAuth: 'user:p@ss:word',
+            stream: false,
+            sendEvents: false,
+            logger: stubLogger(),
+          };
+
+          await withCloseable(LDClient.init(sdkKey, config), async client => {
+            await client.waitForInitialization();
+            expect(client.initialized()).toBe(true);
+
+            expect(socksServer.requestCount()).toBeGreaterThanOrEqual(1);
+            expect(socksServer.authFailures()).toEqual([]);
+          });
+        });
+      }
+    );
   });
 });

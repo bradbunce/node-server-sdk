@@ -302,7 +302,12 @@ declare module 'launchdarkly-node-server-sdk' {
     proxyPort?: number;
 
     /**
-     * When using an HTTP proxy, specifies whether it is accessed via `http` or `https`.
+     * Specifies the scheme used to access the proxy.
+     *
+     * For an HTTP proxy, use `http` (the default) or `https`. To use a SOCKS proxy instead, set
+     * this to one of `socks`, `socks4`, `socks4a`, `socks5`, or `socks5h`; in that case
+     * `proxyHost` and `proxyPort` identify the SOCKS proxy, and `proxyAuth` (if set) provides the
+     * `username:password` credentials.
      */
     proxyScheme?: string;
 

@@ -33,6 +33,7 @@
     "lru-cache": "^6.0.0",
     "node-cache": "^5.1.0",
     "semver": "^7.5.4",
+    "socks-proxy-agent": "^6.2.1",
     "tunnel": "0.0.6",
     "uuid": "^8.3.2"
   },

@@ -14,6 +14,7 @@ const diagnostics = require('./diagnostic_events');
 const { Evaluator } = require('./evaluator');
 const messages = require('./messages');
 const tunnel = require('tunnel');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 const crypto = require('crypto');
 const errors = require('./errors');
 const { safeAsyncEach } = require('./utils/asyncUtils');
@@ -433,7 +434,15 @@ module.exports = {
   errors: errors,
 };
 
+const socksSchemes = ['socks', 'socks4', 'socks4a', 'socks5', 'socks5h'];
+
 function createProxyAgent(config) {
+  // A SOCKS proxy is handled by socks-proxy-agent; a single agent works for both http and https
+  // targets, so we don't need the http/https-over-http/https permutations that tunnel requires.
+  if (socksSchemes.includes(config.proxyScheme)) {
+    return createSocksProxyAgent(config);
+  }
+
   const options = {
     proxy: {
       host: config.proxyHost,
@@ -449,4 +458,23 @@ function createProxyAgent(config) {
   } else {
     return isTargetServerSecure ? tunnel.httpsOverHttp(options) : tunnel.httpOverHttp(options);
   }
+}
+
+function createSocksProxyAgent(config) {
+  // Pass the credentials to socks-proxy-agent as an options object rather than encoding them into
+  // a proxy URL: it does not URL-decode credentials taken from a URL string, and it splits a
+  // "username:password" auth string on the first colon, which would corrupt a password that
+  // itself contains a colon. proxyAuth is a "username:password" string, matching the format used
+  // for the http(s) proxy; everything after the first colon is the password.
+  const options = {
+    protocol: `${config.proxyScheme}:`,
+    hostname: config.proxyHost,
+    port: config.proxyPort,
+  };
+  if (config.proxyAuth) {
+    const [username, ...passwordParts] = config.proxyAuth.split(':');
+    options.userId = username;
+    options.password = passwordParts.join(':');
+  }
+  return new SocksProxyAgent(options);
 }
